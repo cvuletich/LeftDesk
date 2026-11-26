@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+dist/
+*.dmg
+*.dmg.sha256
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+.env
