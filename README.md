@@ -9,7 +9,7 @@ On macOS with current Command Line Tools:
 ```sh
 chmod +x build-dmg.sh
 ./build-dmg.sh --free
-open dist/LeftDesk-1.1.dmg
+open dist/LeftDesk-1.2.dmg
 ```
 
 The universal build targets macOS 13+; Intel and minimum OS are not yet verified. The free build is ad-hoc signed, not Developer ID signed or notarized. Test a browser-downloaded DMG on another Mac before publishing. Quit/remove duplicate older copies, then drag the app into Applications. If blocked, consult https://support.apple.com/en-us/102445 and only use Open Anyway if you trust the file. Managed Macs may disallow this. Never disable Gatekeeper globally. Grant Finder automation when prompted; updates may require renewed permission.
@@ -28,10 +28,10 @@ swiftc source/Grid.swift source/Tests/main.swift -o /tmp/leftdesk-tests
 Back up the live website before replacing it. The website folder contains the static page, icon and update manifest. Copy the built DMG and checksum into it:
 
 ```sh
-cp dist/LeftDesk-1.1.dmg dist/LeftDesk-1.1.dmg.sha256 website/
+cp dist/LeftDesk-1.2.dmg dist/LeftDesk-1.2.dmg.sha256 website/
 ```
 
-Upload the DMG and checksum first, then index.html and icon.png, and updates.json last. Preserve any older downloads you wish to support. Test the public URLs over HTTPS. Verify the downloaded checksum with `shasum -a 256 -c LeftDesk-1.1.dmg.sha256` in the download directory. A checksum detects corruption but is not an independent proof of publisher identity.
+Upload the DMG and checksum first, then index.html and icon.png, and updates.json last. Preserve any older downloads you wish to support. Test the public URLs over HTTPS. Verify the downloaded checksum with `shasum -a 256 -c LeftDesk-1.2.dmg.sha256` in the download directory. A checksum detects corruption but is not an independent proof of publisher identity.
 
 ## Updates
 
