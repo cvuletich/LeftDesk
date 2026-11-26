@@ -54,3 +54,16 @@ precondition(!LeftDeskVersion.validVersion("1..2"))
 precondition(!LeftDeskVersion.validVersion("1.2-beta"))
 precondition(LeftDeskVersion.isNewer("2.0", than: "1.99.99"))
 print("Update version tests passed")
+
+// Direction changes preserve the source traversal order, even when Finder
+// rounds coordinates or the existing layout contains empty slots.
+for old in ["Left", "Right", "Top", "Bottom"] {
+    let original = Grid.slots(left: 75, right: 435, top: 90, bottom: 450, spacing: 120, direction: old)
+    let points = [original[5], original[0], original[3], original[1]].map { ($0.0 + 1, $0.1 - 1) }
+    for new in ["Left", "Right", "Top", "Bottom"] {
+        let destination = Grid.slots(left: 75, right: 435, top: 100, bottom: 460, spacing: 120, direction: new)
+        let result = Grid.preservedSlots(points: points, slots: destination, direction: new, previousDirection: old, previousSlots: original)!
+        precondition(equal(result, [destination[3], destination[0], destination[2], destination[1]]))
+    }
+}
+print("Direction transition tests passed")

@@ -170,7 +170,7 @@ final class LeftDesk: NSObject, NSApplicationDelegate {
                 case .failure:
                     if manual { NSApp.activate(ignoringOtherApps: true); self.alert("Unable to check for updates. Please try again later.") }
                 case .success(let feed):
-                    let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+                    let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.1"
                     if LeftDeskVersion.isNewer(feed.version, than: current) {
                         NSApp.activate(ignoringOtherApps: true)
                         let a = NSAlert(); a.messageText = "LeftDesk \(feed.version) is available"
@@ -208,15 +208,26 @@ final class LeftDesk: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         if a.runModal() == .alertFirstButtonReturn {
             guard let v = Int(space.stringValue), let m = Int(edge.stringValue), (70...300).contains(v), (40...300).contains(m) else { alert("Spacing must be 70–300 and margin 40–300."); return }
+            let oldDirection = direction, oldSpacing = spacing, oldMargin = margin
+            let oldSlots = NSScreen.screens.first.map { gridSlots(screen: $0, direction: oldDirection, spacing: oldSpacing, margin: oldMargin) }
             defaults.set(v, forKey: "spacing"); defaults.set(m, forKey: "margin"); defaults.set(picker.titleOfSelectedItem ?? "Left", forKey: "direction"); defaults.set(gaps.state == .on, forKey: "fillGaps"); defaults.set(preserve.state == .on, forKey: "preserveOrder"); defaults.set(updates.state == .on, forKey: "autoUpdates")
+            if direction != oldDirection || spacing != oldSpacing || margin != oldMargin {
+                scan(all: true, previousDirection: oldDirection, previousSlots: oldSlots)
+            }
         }
     }
     @objc func alignAll() { let a = NSAlert(); a.messageText = "Reposition all desktop icons?"; a.informativeText = preserveOrder ? "Icons will snap to the selected edge while keeping their relative order and filling grid positions from the beginning without gaps." : "Icons will be arranged in name order. This changes icon positions, not files."; a.addButton(withTitle: "Align All"); a.addButton(withTitle: "Cancel"); if a.runModal() == .alertFirstButtonReturn { scan(all: true) } }
     func apple(_ source: String) throws -> NSAppleEventDescriptor {
         var error: NSDictionary?; guard let script = NSAppleScript(source: source) else { throw NSError(domain: "LeftDesk", code: 1) }; let result = script.executeAndReturnError(&error); if let error = error { throw NSError(domain: "LeftDesk", code: 2, userInfo: [NSLocalizedDescriptionKey: error.description]) }; return result
     }
-    struct Item { let name: String; let key: String; let x: Int; let y: Int; let index: Int }
-    func scan(all: Bool = false) {
+    struct Item { let name: String; let key: String; let x: Int; let y: Int; let index: Int; let isDisk: Bool }
+    func gridSlots(screen: NSScreen, direction: String, spacing: Int, margin: Int) -> [(Int, Int)] {
+        let f = screen.visibleFrame, full = screen.frame
+        let left = Int(f.minX) + margin, top = Int(full.maxY - f.maxY) + (direction == "Top" ? margin : 65)
+        let bottom = Int(full.maxY - f.minY) - (direction == "Bottom" ? margin : 65), right = Int(f.maxX) - (direction == "Right" ? margin : 65)
+        return Grid.slots(left: left, right: right, top: top, bottom: bottom, spacing: spacing, direction: direction)
+    }
+    func scan(all: Bool = false, previousDirection: String? = nil, previousSlots: [(Int, Int)]? = nil) {
         guard !busy, let screen = NSScreen.screens.first else { return }; busy = true; defer { busy = false }
         do {
             let result = try apple("""
@@ -232,7 +243,8 @@ final class LeftDesk: NSObject, NSApplicationDelegate {
                         set itemURL to URL of desktopItem
                         if itemURL is not missing value then set itemKey to itemURL as text
                     end try
-                    set end of recordsList to {itemName, itemKey, item 1 of itemPosition, item 2 of itemPosition}
+                    set diskIcon to ((class of desktopItem) is disk)
+                    set end of recordsList to {itemName, itemKey, item 1 of itemPosition, item 2 of itemPosition, diskIcon}
                 end repeat
                 return recordsList
             end tell
@@ -240,10 +252,10 @@ final class LeftDesk: NSObject, NSApplicationDelegate {
             var items = [Item]()
             if result.numberOfItems > 0 {
                 for i in 1...result.numberOfItems {
-                    guard let r = result.atIndex(i), let n = r.atIndex(1)?.stringValue, let k = r.atIndex(2)?.stringValue, let x = r.atIndex(3), let y = r.atIndex(4) else {
+                    guard let r = result.atIndex(i), let n = r.atIndex(1)?.stringValue, let k = r.atIndex(2)?.stringValue, let x = r.atIndex(3), let y = r.atIndex(4), let disk = r.atIndex(5) else {
                         throw NSError(domain: "LeftDesk", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot decode Finder item \(i): \(result)"])
                     }
-                    items.append(Item(name: n, key: k, x: Int(x.int32Value), y: Int(y.int32Value), index: i))
+                    items.append(Item(name: n, key: k, x: Int(x.int32Value), y: Int(y.int32Value), index: i, isDisk: disk.booleanValue))
                 }
             }
             let current = Set(items.map(\.key))
@@ -252,10 +264,7 @@ final class LeftDesk: NSObject, NSApplicationDelegate {
             let targets = items.filter { all || !seen.contains($0.key) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             var occupied = items.filter { !all && seen.contains($0.key) }.map { ($0.x,$0.y) }
             var completed = current.subtracting(Set(targets.map(\.key)))
-            let f = screen.visibleFrame, full = screen.frame
-            let left = Int(f.minX) + margin, top = Int(full.maxY - f.maxY) + (direction == "Top" ? margin : 65)
-            let bottom = Int(full.maxY - f.minY) - (direction == "Bottom" ? margin : 65), right = Int(f.maxX) - (direction == "Right" ? margin : 65)
-            let slots = Grid.slots(left: left, right: right, top: top, bottom: bottom, spacing: spacing, direction: direction)
+            let slots = gridSlots(screen: screen, direction: direction, spacing: spacing, margin: margin)
             // Match existing icons to their nearest grid positions with tolerance for Finder rounding.
             // A small inset in the collision threshold avoids skipping adjacent rows by a pixel.
             let clearance = Grid.clearance(spacing: spacing)
@@ -266,21 +275,41 @@ final class LeftDesk: NSObject, NSApplicationDelegate {
             if all {
                 guard targets.count <= slots.count else { alert("Not enough grid space. Reduce icon spacing or margins and try again."); return }
                 if preserveOrder {
-                    guard let positions = Grid.preservedSlots(points: targets.map { ($0.x, $0.y) }, slots: slots, direction: direction) else { alert("Unable to plan alignment."); return }
+                    guard let positions = Grid.preservedSlots(points: targets.map { ($0.x, $0.y) }, slots: slots, direction: direction, previousDirection: previousDirection, previousSlots: previousSlots) else { alert("Unable to plan alignment."); return }
                     planned = positions
                 }
             }
             var nextIndex = 0
             if !fillGaps && !all, let last = slots.lastIndex(where: { slot in occupied.contains { abs($0.0-slot.0) <= spacing/3 && abs($0.1-slot.1) <= spacing/3 } }) { nextIndex = last + 1 }
+            var failures = [String]()
             for (targetIndex, item) in targets.enumerated() {
                 let slot = planned.map { $0[targetIndex] } ?? slots.dropFirst(nextIndex).first(where: { !blocked($0) })
                 guard let (x,y) = slot else { message = "No available icon space"; if !all { seen = completed }; return }
                 if all && item.x == x && item.y == y { occupied.append((x,y)); completed.insert(item.key); continue }
                 let escaped = item.name.replacingOccurrences(of:"\\",with:"\\\\").replacingOccurrences(of:"\"",with:"\\\"").replacingOccurrences(of:"\n",with:"\\n").replacingOccurrences(of:"\r",with:"\\r")
-                do { _ = try apple("tell application \"Finder\" to set desktop position of item \"\(escaped)\" of desktop to {\(x), \(y)}"); occupied.append((x,y)); completed.insert(item.key); lastMove = "\(item.name) → {\(x), \(y)}" } catch { message = "Cannot move: \(item.name)"; lastMove = error.localizedDescription; NSLog("LeftDesk: %@",error.localizedDescription); if !all { seen = completed }; return }
+                // Use a disk-specific Finder reference for mounted volumes. A
+                // disk is not necessarily resolvable via item of desktop.
+                let reference = item.isDisk ? "disk \"\(escaped)\"" : "item \"\(escaped)\" of desktop"
+                do {
+                    let position = try apple("tell application \"Finder\"\nset desktop position of \(reference) to {\(x), \(y)}\nreturn desktop position of \(reference)\nend tell")
+                    guard let actualX = position.atIndex(1), let actualY = position.atIndex(2),
+                          abs(Int(actualX.int32Value) - x) <= 3, abs(Int(actualY.int32Value) - y) <= 3 else {
+                        throw NSError(domain: "LeftDesk", code: 4, userInfo: [NSLocalizedDescriptionKey: "Finder did not confirm the requested position"])
+                    }
+                    occupied.append((x,y)); completed.insert(item.key); lastMove = "\(item.name) → {\(x), \(y)}"
+                } catch {
+                    failures.append(item.name)
+                    lastMove = error.localizedDescription
+                    NSLog("LeftDesk: %@: %@", item.name, error.localizedDescription)
+                    occupied.append((item.x,item.y))
+                }
             }
-            seen = completed; initialized = true; message = enabled ? "Ready (\(items.count) icons)" : "Paused"
-        } catch { message = "Finder scan failed"; NSLog("LeftDesk: %@",error.localizedDescription) }
+            seen = all ? current : completed; initialized = true; message = enabled ? "Ready (\(items.count) icons)" : "Paused"
+            if !failures.isEmpty && all {
+                NSApp.activate(ignoringOtherApps: true)
+                alert("Unable to move: " + failures.joined(separator: ", ") + ". Check Finder settings and try again.")
+            }
+        } catch { message = "Finder scan failed"; NSLog("LeftDesk: %@",error.localizedDescription); if all { alert("Finder could not align the desktop: " + error.localizedDescription) } }
     }
 }
 let app = NSApplication.shared

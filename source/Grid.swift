@@ -17,14 +17,16 @@ enum Grid {
         }
     }
     // Compact into the first N slots while preserving relative axis order.
-    static func preservedSlots(points: [(Int, Int)], slots: [(Int, Int)], direction: String) -> [(Int, Int)]? {
+    static func preservedSlots(points: [(Int, Int)], slots: [(Int, Int)], direction: String, previousDirection: String? = nil, previousSlots: [(Int, Int)]? = nil) -> [(Int, Int)]? {
         guard points.count <= slots.count else { return nil }
         guard !points.isEmpty else { return [] }
-        let vertical = direction == "Left" || direction == "Right"
+        let orderingDirection = previousDirection ?? direction
+        let vertical = orderingDirection == "Left" || orderingDirection == "Right"
+        let orderingSlots = previousSlots ?? slots
         func lane(_ p: (Int, Int)) -> Int { vertical ? p.0 : p.1 }
         func axis(_ p: (Int, Int)) -> Int { vertical ? p.1 : p.0 }
         // Preserve lane order on repeated alignment, including partially filled lanes.
-        let existing = points.compactMap { p in slots.firstIndex { $0 == p } }
+        let existing = points.compactMap { p in orderingSlots.firstIndex { abs($0.0 - p.0) <= 3 && abs($0.1 - p.1) <= 3 } }
         let order: [Int]
         if existing.count == points.count && Set(existing).count == points.count {
             order = points.indices.sorted { existing[$0] < existing[$1] }
@@ -32,7 +34,7 @@ enum Grid {
             order = points.indices.sorted { a, b in
                 if axis(points[a]) != axis(points[b]) { return axis(points[a]) < axis(points[b]) }
                 if lane(points[a]) != lane(points[b]) {
-                    return direction == "Right" || direction == "Bottom" ? lane(points[a]) > lane(points[b]) : lane(points[a]) < lane(points[b])
+                    return orderingDirection == "Right" || orderingDirection == "Bottom" ? lane(points[a]) > lane(points[b]) : lane(points[a]) < lane(points[b])
                 }
                 return a < b
             }
